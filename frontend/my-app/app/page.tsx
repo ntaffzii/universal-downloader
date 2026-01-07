@@ -72,6 +72,7 @@ export default function Home() {
     setStatus("processing");
 
     try {
+      // ✅ ใช้ Environment Variable
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
       
       const response = await axios.get(`${apiUrl}/api/download`, {
@@ -80,20 +81,23 @@ export default function Home() {
         onDownloadProgress: (progressEvent: any) => setStatus("downloading"),
       });
 
-      // --- ⚡ FIX: Logic แก้ไขปัญหารูปเป็น mp4 ⚡ ---
+      // --- ⚡ FIX: Logic แก้ไขปัญหารูปเป็น mp4 (Web Version) ⚡ ---
       
-      // 1. ตรวจสอบ Content-Type ให้แน่ชัดก่อน (แปลงเป็นตัวเล็กเพื่อความชัวร์)
-      const rawContentType = response.headers['content-type'] || response.data.type || "";
+      // 1. ตรวจสอบ Content-Type ให้แน่ชัดก่อน
+      // (Response type 'blob' จะเก็บ type ไว้ใน response.data.type ด้วย)
+      const rawContentType = response.data.type || response.headers['content-type'] || "";
       const contentType = rawContentType.toLowerCase();
       
+      console.log("Detected Web Content-Type:", contentType); // Debug ดูได้
+
       // 2. กำหนดนามสกุลจาก Content-Type เป็นหลัก (Source of Truth)
-      let extension = "mp4"; // Default
+      let extension = "mp4"; // Default fallback
       if (contentType.includes("image/jpeg") || contentType.includes("image/jpg")) extension = "jpg";
       else if (contentType.includes("image/png")) extension = "png";
       else if (contentType.includes("image/webp")) extension = "webp";
       else if (contentType.includes("image/gif")) extension = "gif";
       
-      // 3. ดึงชื่อไฟล์จาก Header
+      // 3. ดึงชื่อไฟล์จาก Header Content-Disposition
       let filename = `download_${new Date().getTime()}.${extension}`;
       const disposition = response.headers['content-disposition'];
       
@@ -111,20 +115,21 @@ export default function Home() {
         }
       }
 
-      // 4. ⚡ จุดสำคัญ: บังคับเปลี่ยนนามสกุลให้ตรงกับ Content-Type ⚡
-      // ถ้า Backend ส่งชื่อมาเป็น "video.mp4" แต่ Content-Type คือ "image/jpeg"
-      // เราต้องบังคับเปลี่ยนชื่อเป็น "video.jpg" ไม่งั้นไฟล์จะเปิดไม่ได้
+      // 4. ⚡ จุดสำคัญ: บังคับเปลี่ยนนามสกุลไฟล์ให้ตรงกับ Content-Type ⚡
+      // ถ้าชื่อไฟล์ที่ได้มาลงท้ายด้วย .mp4 แต่ Content-Type จริงๆ เป็น jpg
+      // เราต้องลบ .mp4 ทิ้ง แล้วใส่ .jpg แทน
       if (!filename.toLowerCase().endsWith(`.${extension}`)) {
-         // ลบนามสกุลเดิมออก (ไม่ว่าจะ .mp4 หรืออะไรก็ตาม) แล้วใส่นามสกุลที่ถูกต้องจากข้อ 2
+         // Regex นี้จะลบนามสกุลเดิมออก (ถ้ามี) แล้วเราจะเติมอันใหม่ที่ถูกต้อง
          filename = filename.replace(/\.[^/.]+$/, "") + `.${extension}`;
       }
       
       // Save File
-      const blob = new Blob([response.data], { type: contentType }); // ใช้ contentType ที่เช็คแล้ว
+      // สร้าง Blob โดยระบุ contentType ที่ถูกต้อง เพื่อให้ Browser เข้าใจว่าเป็นรูป
+      const blob = new Blob([response.data], { type: contentType }); 
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
-      link.setAttribute("download", filename);
+      link.setAttribute("download", filename); // ตั้งชื่อไฟล์ที่นามสกุลถูกแล้ว
       document.body.appendChild(link);
       link.click();
       link.remove();
