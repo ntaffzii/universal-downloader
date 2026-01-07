@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 
 // --- Components & Icons ---
-// แก้ไข: เพิ่ม group เพื่อทำ Animation ตอนเมาส์ชี้
 const PlatformBadge = ({ name, color, icon }: { name: string, color: string, icon: React.ReactNode }) => (
   <div className={`flex flex-col items-center gap-2 rounded-xl border border-gray-800 bg-gray-900/50 p-3 transition-all hover:bg-gray-800 hover:border-${color}-500/50 group cursor-default`}>
     <div className={`text-${color}-500 transition-transform group-hover:scale-110`}>{icon}</div>
@@ -29,7 +28,6 @@ const IgIcon = () => (
 const FbIcon = () => (
   <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
 );
-// ✅ เพิ่มไอคอน X (Twitter)
 const XIcon = () => (
   <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
 );
@@ -42,7 +40,6 @@ export default function Home() {
 
   // --- Validation ---
   const validateUrl = (input: string) => {
-    // Regex สำหรับ 4 แพลตฟอร์มหลัก (ตัด YT ออก, เพิ่ม fb.watch)
     const supportedDomains = /(instagram\.com|tiktok\.com|facebook\.com|fb\.watch|twitter\.com|x\.com)/i;
     
     if (!input) return "กรุณาวางลิงก์ก่อนครับ";
@@ -54,7 +51,6 @@ export default function Home() {
 
   const handlePaste = async () => {
     try {
-      // เช็คว่า Browser รองรับ clipboard API ไหม
       if (typeof navigator !== "undefined" && navigator.clipboard) {
         const text = await navigator.clipboard.readText();
         setUrl(text);
@@ -76,7 +72,6 @@ export default function Home() {
     setStatus("processing");
 
     try {
-      // ✅ ใช้ Environment Variable สำหรับ URL (เตรียม Deploy)
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
       
       const response = await axios.get(`${apiUrl}/api/download`, {
@@ -85,25 +80,30 @@ export default function Home() {
         onDownloadProgress: (progressEvent: any) => setStatus("downloading"),
       });
 
-      // --- ⚡ Logic การแกะชื่อไฟล์และนามสกุล (ฉบับสมบูรณ์) ⚡ ---
-      const contentType = response.headers['content-type'] || response.data.type;
+      // --- ⚡ FIX: Logic แก้ไขปัญหารูปเป็น mp4 ⚡ ---
       
-      let extension = "mp4"; 
-      if (contentType.includes("image/jpeg")) extension = "jpg";
+      // 1. ตรวจสอบ Content-Type ให้แน่ชัดก่อน (แปลงเป็นตัวเล็กเพื่อความชัวร์)
+      const rawContentType = response.headers['content-type'] || response.data.type || "";
+      const contentType = rawContentType.toLowerCase();
+      
+      // 2. กำหนดนามสกุลจาก Content-Type เป็นหลัก (Source of Truth)
+      let extension = "mp4"; // Default
+      if (contentType.includes("image/jpeg") || contentType.includes("image/jpg")) extension = "jpg";
       else if (contentType.includes("image/png")) extension = "png";
       else if (contentType.includes("image/webp")) extension = "webp";
       else if (contentType.includes("image/gif")) extension = "gif";
-
+      
+      // 3. ดึงชื่อไฟล์จาก Header
       let filename = `download_${new Date().getTime()}.${extension}`;
       const disposition = response.headers['content-disposition'];
       
       if (disposition) {
-        // 1. ลองหา filename*=UTF-8''... (แบบใหม่ รองรับภาษาไทย)
+        // หา filename*=UTF-8''... (แบบใหม่)
         const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/);
         if (utf8Match && utf8Match[1]) {
             filename = decodeURIComponent(utf8Match[1]);
         } else {
-            // 2. ถ้าไม่มี ให้หา filename="..." (แบบเก่า)
+            // หา filename="..." (แบบเก่า)
             const standardMatch = disposition.match(/filename="?([^";]+)"?/);
             if (standardMatch && standardMatch[1]) {
                 filename = standardMatch[1];
@@ -111,13 +111,16 @@ export default function Home() {
         }
       }
 
-      // 3. Safety check: ถ้านามสกุลไม่ตรงกับ Type ให้แก้
-      if (!filename.endsWith(`.${extension}`)) {
+      // 4. ⚡ จุดสำคัญ: บังคับเปลี่ยนนามสกุลให้ตรงกับ Content-Type ⚡
+      // ถ้า Backend ส่งชื่อมาเป็น "video.mp4" แต่ Content-Type คือ "image/jpeg"
+      // เราต้องบังคับเปลี่ยนชื่อเป็น "video.jpg" ไม่งั้นไฟล์จะเปิดไม่ได้
+      if (!filename.toLowerCase().endsWith(`.${extension}`)) {
+         // ลบนามสกุลเดิมออก (ไม่ว่าจะ .mp4 หรืออะไรก็ตาม) แล้วใส่นามสกุลที่ถูกต้องจากข้อ 2
          filename = filename.replace(/\.[^/.]+$/, "") + `.${extension}`;
       }
       
       // Save File
-      const blob = new Blob([response.data], { type: contentType });
+      const blob = new Blob([response.data], { type: contentType }); // ใช้ contentType ที่เช็คแล้ว
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
@@ -133,7 +136,6 @@ export default function Home() {
 
     } catch (err: any) {
       console.error(err);
-      // อ่าน Error จาก Blob (กรณี Backend ส่ง JSON Error มา)
       if (err.response && err.response.data instanceof Blob) {
         const errorText = await err.response.data.text();
         try {
@@ -170,18 +172,16 @@ export default function Home() {
           <h1 className="text-4xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
             Universal Saver
           </h1>
-          {/* ✅ ปรับข้อความให้ตรงกับความจริง */}
           <p className="text-gray-400 text-sm">
-            รองรับวิดีโอเท่านั้นจาก TikTok, Instagram, Facebook, และ X (Twitter)
+            รองรับวิดีโอและรูปภาพจาก TikTok, Instagram, Facebook, และ X (Twitter)
           </p>
         </div>
 
-        {/* ✅ Platform Grid (ปรับปรุงใหม่: ลบ YT เพิ่ม X) */}
+        {/* Platform Grid */}
         <div className="grid grid-cols-4 gap-3">
             <PlatformBadge name="TikTok" color="pink" icon={<TikTokIcon />} />
             <PlatformBadge name="Instagram" color="purple" icon={<IgIcon />} />
             <PlatformBadge name="Facebook" color="blue" icon={<FbIcon />} />
-            {/* ใช้สี zinc (เทา) ให้เข้ากับแบรนด์ X */}
             <PlatformBadge name="X (Twitter)" color="zinc" icon={<XIcon />} />
         </div>
 
@@ -199,7 +199,6 @@ export default function Home() {
                 onChange={(e) => setUrl(e.target.value)}
                 className="block w-full rounded-xl border border-gray-700 bg-gray-950/50 p-4 pl-11 pr-12 text-white placeholder-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all outline-none"
               />
-              {/* Paste Button */}
               <button 
                 type="button"
                 onClick={handlePaste}
