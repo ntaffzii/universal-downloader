@@ -3,6 +3,7 @@ import logging
 import subprocess
 import traceback
 import requests
+import os  # <--- เพิ่มตัวนี้
 import json
 import re
 from urllib.parse import quote
@@ -231,5 +232,14 @@ def download_content(url: str = Query(..., description="Content URL")):
         logger.error(f"Error: {error_trace}")
         raise HTTPException(status_code=500, detail="Server Error")
 
+# ❌ ของเดิม (ใช้ได้แค่ในเครื่องเรา)
+# if __name__ == "__main__":
+#     uvicorn.run(app, host="127.0.0.1", port=8000)
+
+# ✅ ของใหม่ (ใช้ได้ทั้ง Render และเครื่องเรา)
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # ดึง Port จาก Render ถ้าไม่มีให้ใช้ 8000
+    port = int(os.environ.get("PORT", 8000)) 
+    
+    # เปลี่ยน host เป็น 0.0.0.0 เพื่อให้โลกภายนอกเข้าถึงได้
+    uvicorn.run(app, host="0.0.0.0", port=port)
